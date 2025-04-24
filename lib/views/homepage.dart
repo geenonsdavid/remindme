@@ -1,10 +1,11 @@
-import 'dart:convert'; // Importation pour JSON
+import 'dart:convert'; // Pour encoder / décoder les données JSON
 import 'package:flutter/material.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:timezone/data/latest.dart' as tz;
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';// Pour gérer les notifications locales
+import 'package:shared_preferences/shared_preferences.dart';// Pour stocker les données localement
+import 'package:timezone/data/latest.dart' as tz; // pour gérer les fuseaux horaires
 import 'package:timezone/timezone.dart' as tz;
 
+// Initialisation de la bibliothèque de notifications
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
     FlutterLocalNotificationsPlugin();
 
@@ -22,20 +23,23 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
+    // Initialisation des notifications pour Android
     const AndroidInitializationSettings initializationSettingsAndroid =
         AndroidInitializationSettings('@mipmap/ic_launcher');
     const InitializationSettings initializationSettings =
         InitializationSettings(android: initializationSettingsAndroid);
 
     flutterLocalNotificationsPlugin.initialize(initializationSettings);
+
+    // initialisation du fuseau horaire
     tz.initializeTimeZones();
     tz.setLocalLocation(tz.getLocation('Europe/Paris')); // Set your local timezone
-    loadReminders();
+    loadReminders(); // Charger les rappels enregistrés
     scheduleNotifications(); // 📌 Planifie les notifications pour chaque entretien
 
   }
 
-  // Sauvegarde toute la liste des entretiens
+  // Sauvegarde toute la liste des entretiens dans SharedPreferences
   Future<void> saveReminders() async {
     final prefs = await SharedPreferences.getInstance();
     Map<String, String> stringDates = entretiens.map(
@@ -44,7 +48,7 @@ class _HomePageState extends State<HomePage> {
     await prefs.setString('entretiens', jsonEncode(stringDates)); // Stocke en JSON
   }
 
-  // Charge toute la liste des entretiens au démarrage
+  // Charge toute la liste des entretiens depuis SharedPreferences
   Future<void> loadReminders() async {
     final prefs = await SharedPreferences.getInstance();
     String? storedData = prefs.getString('entretiens');
@@ -53,13 +57,15 @@ class _HomePageState extends State<HomePage> {
     }
     // Si des données sont stockées, on les décode
     // et on les convertit en DateTime
-    Map<String, dynamic> decodedData = jsonDecode(storedData!);
+    Map<String, dynamic> decodedData = jsonDecode(storedData);
     setState(() {
       entretiens = decodedData.map(
         (key, value) => MapEntry(key, DateTime.parse(value)),
       );
     });
     }
+  // Génère un ID unique pour chaque notification
+  int notificationsId(String name) => name.hashCode;
 
   // Ajoute un entretien et le sauvegarde
  void addEntretien() async {
@@ -126,7 +132,7 @@ class _HomePageState extends State<HomePage> {
   );
 }
   
-  // Supprime un entretien et le sauvegarde
+  // Supprime un entretien après confirmation
  void deleteEntretien(String name) async {
   final bool? confirm = await showDialog<bool>(
     context: context,
@@ -169,7 +175,7 @@ class _HomePageState extends State<HomePage> {
         NotificationDetails(android: androidPlatformChannelSpecifics);
 
     await flutterLocalNotificationsPlugin.zonedSchedule(
-  0,
+  notificationsId(name),// ID unique basé sur le nom de l'entretien
   'Rappel d\'entretien',
   'N\'oubliez pas l\'entretien de $name !',
   tz.TZDateTime.from(date, tz.local),
