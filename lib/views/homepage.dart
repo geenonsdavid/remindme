@@ -173,12 +173,14 @@ class _HomePageState extends State<HomePage> {
             showWhen: false);
     const NotificationDetails platformChannelSpecifics =
         NotificationDetails(android: androidPlatformChannelSpecifics);
+        // on crée une nouvelle date avec 9h comme heure
+    DateTime fixedTime = DateTime(date.year, date.month, date.day, 9, 0, 0);
 
     await flutterLocalNotificationsPlugin.zonedSchedule(
   notificationsId(name),// ID unique basé sur le nom de l'entretien
   'Rappel d\'entretien',
   'N\'oubliez pas l\'entretien de $name !',
-  tz.TZDateTime.from(date, tz.local),
+  tz.TZDateTime.from(fixedTime, tz.local),
   platformChannelSpecifics,
   androidScheduleMode: AndroidScheduleMode.exact,
 );
