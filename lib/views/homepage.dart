@@ -48,7 +48,11 @@ class _HomePageState extends State<HomePage> {
   Future<void> loadReminders() async {
     final prefs = await SharedPreferences.getInstance();
     String? storedData = prefs.getString('entretiens');
-
+    if (storedData == null) {
+      return; // Pas de données stockées
+    }
+    // Si des données sont stockées, on les décode
+    // et on les convertit en DateTime
     Map<String, dynamic> decodedData = jsonDecode(storedData!);
     setState(() {
       entretiens = decodedData.map(
