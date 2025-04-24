@@ -198,7 +198,50 @@ class _HomePageState extends State<HomePage> {
   void scheduleNotification(String name, DateTime date) {
     showNotification(name, date);
   }
-  
+
+// met à jour la date d'un entretien en ajoutant un an
+  // et reprogramme la notification
+void updateEntretienDate(String name) async {
+  final currentDate = entretiens[name];
+  if (currentDate == null) return;
+
+  final bool? confirm = await showDialog<bool>(
+    context: context,
+    builder: (BuildContext context) {
+      return AlertDialog(
+        title: const Text("Confirmation"),
+        content: Text("Souhaitez-vous ajouter un an à la date de l'entretien \"$name\" ?"),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text("Annuler"),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text("Confirmer"),
+          ),
+        ],
+      );
+    },
+  );
+
+  if (confirm == true) {
+    final newDate = DateTime(currentDate.year + 1, currentDate.month, currentDate.day);
+    setState(() {
+      entretiens[name] = newDate;
+    });
+    await saveReminders(); // Sauvegarde la nouvelle date
+    scheduleNotification(name, newDate); // Reprogramme la notification
+    if(mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Nouvelle date pour \"$name\" : ${newDate.day}/${newDate.month}/${newDate.year}")),
+      );
+    }
+  }
+}
+
+
+
 
   @override
   Widget build(BuildContext context) {
@@ -210,6 +253,7 @@ class _HomePageState extends State<HomePage> {
             title: Text(entry.key),
             subtitle: Text('${entry.value.day}/${entry.value.month}/${entry.value.year}'),
             leading: const Icon(Icons.event),
+            onTap: () => updateEntretienDate(entry.key), // 👈 Tap sur le nom pour +1 an
             trailing: SizedBox(
               width: 150,
               child: Row(
