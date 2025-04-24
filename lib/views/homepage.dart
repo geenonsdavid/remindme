@@ -127,12 +127,35 @@ class _HomePageState extends State<HomePage> {
 }
   
   // Supprime un entretien et le sauvegarde
-  void deleteEntretien(String name) {
+ void deleteEntretien(String name) async {
+  final bool? confirm = await showDialog<bool>(
+    context: context,
+    builder: (BuildContext context) {
+      return AlertDialog(
+        title: const Text("Confirmation"),
+        content: Text("Voulez-vous vraiment supprimer l'entretien \"$name\" ?"),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text("Annuler"),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text("Supprimer", style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      );
+    },
+  );
+
+  if (confirm == true) {
     setState(() {
       entretiens.remove(name);
     });
-    saveReminders(); // 💾 Sauvegarde immédiate après suppression
+    saveReminders();
   }
+}
+
   
   // Affiche une notification pour un entretien
   Future<void> showNotification(String name, DateTime date) async {
