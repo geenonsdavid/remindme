@@ -1,13 +1,6 @@
-import 'dart:convert'; // Pour encoder / décoder les données JSON
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';// Pour gérer les notifications locales
-import 'package:shared_preferences/shared_preferences.dart';// Pour stocker les données localement
-import 'package:timezone/data/latest.dart' as tz; // pour gérer les fuseaux horaires
-import 'package:timezone/timezone.dart' as tz;
-
-// Initialisation de la bibliothèque de notifications
-final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
-    FlutterLocalNotificationsPlugin();
+import 'package:remindme/reminder_service.dart';
 
 class HomePage extends StatefulWidget {
   final String title;
@@ -18,267 +11,406 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  Map<String, DateTime> entretiens = {};
+  late final ReminderService _reminderService;
+  bool _isLoading = true;
+  Set<int> _activeReminderIds = {};
+
+  Map<String, DateTime> get entretiens => _reminderService.entretiens;
 
   @override
   void initState() {
     super.initState();
-    // Initialisation des notifications pour Android
-    const AndroidInitializationSettings initializationSettingsAndroid =
-        AndroidInitializationSettings('@mipmap/ic_launcher');
-    const InitializationSettings initializationSettings =
-        InitializationSettings(android: initializationSettingsAndroid);
-
-    flutterLocalNotificationsPlugin.initialize(initializationSettings);
-
-    // initialisation du fuseau horaire
-    tz.initializeTimeZones();
-    tz.setLocalLocation(tz.getLocation('Europe/Paris')); // Set your local timezone
-    loadReminders(); // Charger les rappels enregistrés
-    scheduleNotifications(); // 📌 Planifie les notifications pour chaque entretien
-
+    _reminderService = ReminderService(flutterLocalNotificationsPlugin);
+    _initializeReminders();
   }
 
-  // Sauvegarde toute la liste des entretiens dans SharedPreferences
-  Future<void> saveReminders() async {
-    final prefs = await SharedPreferences.getInstance();
-    Map<String, String> stringDates = entretiens.map(
-      (key, value) => MapEntry(key, value.toIso8601String()),
-    );
-    await prefs.setString('entretiens', jsonEncode(stringDates)); // Stocke en JSON
+  Future<void> _initializeReminders() async {
+    try {
+      await _reminderService.loadReminders();
+    } catch (error) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        _showError("Impossible de charger les entretiens : $error");
+      }
+      return;
+    }
+
+    if (mounted) {
+      setState(() => _isLoading = false);
+    }
+
+    _restoreNotifications();
   }
 
-  // Charge toute la liste des entretiens depuis SharedPreferences
-  Future<void> loadReminders() async {
-    final prefs = await SharedPreferences.getInstance();
-    String? storedData = prefs.getString('entretiens');
-    if (storedData == null) {
-      return; // Pas de données stockées
+  Future<void> _restoreNotifications() async {
+    try {
+      await _reminderService.scheduleAll();
+      await _refreshReminderStatus();
+    } catch (error) {
+      if (mounted) {
+        _showError("Impossible de synchroniser les notifications : $error");
+      }
     }
-    // Si des données sont stockées, on les décode
-    // et on les convertit en DateTime
-    Map<String, dynamic> decodedData = jsonDecode(storedData);
-    setState(() {
-      entretiens = decodedData.map(
-        (key, value) => MapEntry(key, DateTime.parse(value)),
-      );
-    });
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _refreshReminderStatus() async {
+    final notificationsEnabled =
+        await _reminderService.areNotificationsEnabled();
+    final scheduledIds = await _reminderService.scheduledNotificationIds();
+    if (mounted) {
+      setState(() {
+        _activeReminderIds = notificationsEnabled ? scheduledIds : <int>{};
+      });
     }
-  // Génère un ID unique pour chaque notification
-  int notificationsId(String name) => name.hashCode;
+  }
 
-  // Ajoute un entretien et le sauvegarde
- void addEntretien() async {
-  final TextEditingController nameController = TextEditingController();
-  DateTime? selectedDate;
+  Future<void> addEntretien() async {
+    var enteredName = '';
+    DateTime? selectedDate;
 
-  await showDialog(
-    context: context,
-    builder: (BuildContext context) {
-      return AlertDialog(
-        title: const Text("Ajouter un entretien"),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: nameController,
-              decoration: const InputDecoration(labelText: "Nom de l'entretien"),
+    final entretien = await showDialog<({String name, DateTime date})>(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          title: const Text("Ajouter un entretien"),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                onChanged: (value) => enteredName = value,
+                decoration: const InputDecoration(
+                  labelText: "Nom de l'entretien",
+                ),
+              ),
+              const SizedBox(height: 10),
+              ElevatedButton(
+                onPressed: () async {
+                  final pickedDate = await showDatePicker(
+                    context: dialogContext,
+                    initialDate: DateTime.now(),
+                    firstDate: DateTime.now(),
+                    lastDate: DateTime(2030),
+                  );
+                  if (pickedDate != null) {
+                    selectedDate = pickedDate;
+                  }
+                },
+                child: const Text("Choisir une date"),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text("Annuler"),
             ),
-            const SizedBox(height: 10),
-            ElevatedButton(
+            TextButton(
               onPressed: () async {
-                final DateTime? pickedDate = await showDatePicker(
-                  context: context,
-                  initialDate: DateTime.now(),
-                  firstDate: DateTime(2020),
-                  lastDate: DateTime(2030),
-                );
-                if (pickedDate != null) {
-                  selectedDate = pickedDate;
+                final name = enteredName.trim();
+                if (name.isEmpty || selectedDate == null) {
+                  _showError(
+                    "Saisissez un nom et choisissez une date pour l’entretien.",
+                  );
+                  return;
                 }
+                final existingName =
+                    entretiens.keys
+                        .where(
+                          (existingName) =>
+                              existingName.trim().toLowerCase() ==
+                              name.toLowerCase(),
+                        )
+                        .firstOrNull;
+                var nameToSave = name;
+                if (existingName != null) {
+                  final existingDate = entretiens[existingName]!;
+                  final replaceDate = await showDialog<bool>(
+                    context: dialogContext,
+                    builder:
+                        (confirmationContext) => AlertDialog(
+                          title: const Text("Entretien déjà enregistré"),
+                          content: Text(
+                            "« $existingName » est déjà prévu le "
+                            "${existingDate.day}/${existingDate.month}/${existingDate.year}. "
+                            "Voulez-vous remplacer cette date par "
+                            "${selectedDate!.day}/${selectedDate!.month}/${selectedDate!.year} ?",
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed:
+                                  () =>
+                                      Navigator.pop(confirmationContext, false),
+                              child: const Text("Garder la date"),
+                            ),
+                            TextButton(
+                              onPressed:
+                                  () =>
+                                      Navigator.pop(confirmationContext, true),
+                              child: const Text("Remplacer"),
+                            ),
+                          ],
+                        ),
+                  );
+                  if (replaceDate != true) {
+                    return;
+                  }
+                  if (!dialogContext.mounted) {
+                    return;
+                  }
+                  nameToSave = existingName;
+                }
+
+                Navigator.pop(dialogContext, (
+                  name: nameToSave,
+                  date: selectedDate!,
+                ));
               },
-              child: const Text("Choisir une date"),
+              child: const Text("Ajouter"),
             ),
           ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-            },
-            child: const Text("Annuler"),
-          ),
-          TextButton(
-  onPressed: () {
-    if (nameController.text.isNotEmpty && selectedDate != null) {
-      if (entretiens.containsKey(nameController.text)) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Un entretien avec ce nom existe déjà !")),
         );
+      },
+    );
+
+    if (entretien == null || !mounted) {
+      return;
+    }
+
+    try {
+      entretiens[entretien.name] = entretien.date;
+      await _reminderService.saveReminders();
+      if (mounted) {
+        setState(() {});
+      }
+
+      final permissionGranted = await _reminderService.requestPermissions();
+      await _reminderService.scheduleNotification(
+        entretien.name,
+        entretien.date,
+      );
+      await _refreshReminderStatus();
+      if (!permissionGranted && mounted) {
+        _showError("Autorisez les notifications pour recevoir vos rappels.");
+      }
+    } catch (error) {
+      if (mounted) {
+        _showError("Impossible d’enregistrer l’entretien : $error");
+      }
+    }
+  }
+
+  Future<void> deleteEntretien(String name) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          title: const Text("Confirmation"),
+          content: Text(
+            "Voulez-vous vraiment supprimer l'entretien \"$name\" ?",
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text("Annuler"),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text(
+                "Supprimer",
+                style: TextStyle(color: Colors.red),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirm == true) {
+      await _reminderService.deleteEntretien(name);
+      if (mounted) {
+        setState(() {
+          _activeReminderIds.remove(_reminderService.notificationsId(name));
+        });
+      }
+    }
+  }
+
+  Future<void> updateEntretienDate(String name) async {
+    final currentDate = entretiens[name];
+    if (currentDate == null) return;
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          title: const Text("Confirmation"),
+          content: Text(
+            "Souhaitez-vous ajouter un an à la date de l'entretien \"$name\" ?",
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text("Annuler"),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text("Confirmer"),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirm == true) {
+      await _reminderService.updateEntretienDate(name);
+      final newDate = entretiens[name];
+      if (newDate != null && mounted) {
+        await _refreshReminderStatus();
+        if (!mounted) return;
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              "Nouvelle date pour \"$name\" : "
+              "${newDate.day}/${newDate.month}/${newDate.year}",
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> toggleNotification(String name, DateTime date) async {
+    if (kIsWeb) {
+      _showError(
+        "Les notifications ne sont pas disponibles dans la version Web. "
+        "Utilisez l’application Android ou iOS pour activer les rappels.",
+      );
+      return;
+    }
+
+    final notificationId = _reminderService.notificationsId(name);
+    try {
+      if (_activeReminderIds.contains(notificationId)) {
+        await _reminderService.cancelNotification(name);
+        if (mounted) {
+          setState(() => _activeReminderIds.remove(notificationId));
+          _showError("Rappel désactivé pour « $name ».");
+        }
         return;
       }
-      setState(() {
-        entretiens[nameController.text] = selectedDate!;
-      });
-      saveReminders();
-      Navigator.pop(context);
-    }
-  },
-  child: const Text("Ajouter"),
-),
-        ],
-      );
-    },
-  );
-}
-  
-  // Supprime un entretien après confirmation
- void deleteEntretien(String name) async {
-  final bool? confirm = await showDialog<bool>(
-    context: context,
-    builder: (BuildContext context) {
-      return AlertDialog(
-        title: const Text("Confirmation"),
-        content: Text("Voulez-vous vraiment supprimer l'entretien \"$name\" ?"),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text("Annuler"),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text("Supprimer", style: TextStyle(color: Colors.red)),
-          ),
-        ],
-      );
-    },
-  );
 
-  if (confirm == true) {
-    setState(() {
-      entretiens.remove(name);
-    });
-    saveReminders();
-  }
-}
+      final permissionGranted = await _reminderService.requestPermissions();
+      if (!permissionGranted) {
+        await _refreshReminderStatus();
+        if (mounted) {
+          _showError(
+            "Autorisez les notifications dans les réglages pour activer ce rappel.",
+          );
+        }
+        return;
+      }
 
-  
-  // Affiche une notification pour un entretien
-  Future<void> showNotification(String name, DateTime date) async {
-    const AndroidNotificationDetails androidPlatformChannelSpecifics =
-        AndroidNotificationDetails('your_channel_id', 'your_channel_name',
-            channelDescription: 'your_channel_description',
-            importance: Importance.max,
-            priority: Priority.high,
-            showWhen: false);
-    const NotificationDetails platformChannelSpecifics =
-        NotificationDetails(android: androidPlatformChannelSpecifics);
-        // on crée une nouvelle date avec 9h comme heure
-    DateTime fixedTime = DateTime(date.year, date.month, date.day, 9, 0, 0);
+      final scheduled = await _reminderService.scheduleNotification(name, date);
+      await _refreshReminderStatus();
+      if (!mounted) return;
 
-    await flutterLocalNotificationsPlugin.zonedSchedule(
-  notificationsId(name),// ID unique basé sur le nom de l'entretien
-  'Rappel d\'entretien',
-  'N\'oubliez pas l\'entretien de $name !',
-  tz.TZDateTime.from(fixedTime, tz.local),
-  platformChannelSpecifics,
-  androidScheduleMode: AndroidScheduleMode.exact,
-);
-
-  }
-  
-  // Affiche une notification pour tous les entretiens
-  void scheduleNotifications() {
-    for (var entry in entretiens.entries) {
-      showNotification(entry.key, entry.value);
+      if (!scheduled) {
+        _showError(
+          "La date de « $name » est passée : choisissez une date future.",
+        );
+      } else if (_activeReminderIds.contains(notificationId)) {
+        _showError(
+          "Rappel activé pour « $name » le "
+          "${date.day}/${date.month}/${date.year} à 9 h.",
+        );
+      } else {
+        _showError(
+          "Le rappel a été planifié, mais les notifications sont désactivées dans les réglages.",
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        _showError("Impossible de modifier le rappel : $error");
+      }
     }
   }
-  
-  // Affiche une notification pour un entretien
-  void scheduleNotification(String name, DateTime date) {
-    showNotification(name, date);
-  }
-
-// met à jour la date d'un entretien en ajoutant un an
-  // et reprogramme la notification
-void updateEntretienDate(String name) async {
-  final currentDate = entretiens[name];
-  if (currentDate == null) return;
-
-  final bool? confirm = await showDialog<bool>(
-    context: context,
-    builder: (BuildContext context) {
-      return AlertDialog(
-        title: const Text("Confirmation"),
-        content: Text("Souhaitez-vous ajouter un an à la date de l'entretien \"$name\" ?"),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text("Annuler"),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text("Confirmer"),
-          ),
-        ],
-      );
-    },
-  );
-
-  if (confirm == true) {
-    final newDate = DateTime(currentDate.year + 1, currentDate.month, currentDate.day);
-    setState(() {
-      entretiens[name] = newDate;
-    });
-    await saveReminders(); // Sauvegarde la nouvelle date
-    scheduleNotification(name, newDate); // Reprogramme la notification
-    if(mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Nouvelle date pour \"$name\" : ${newDate.day}/${newDate.month}/${newDate.year}")),
-      );
-    }
-  }
-}
-
-
-
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text(widget.title)),
-      body: ListView(
-        children: entretiens.entries.map((entry) {
-          return ListTile(
-            title: Text(entry.key),
-            subtitle: Text('${entry.value.day}/${entry.value.month}/${entry.value.year}'),
-            leading: const Icon(Icons.event),
-            onTap: () => updateEntretienDate(entry.key), // 👈 Tap sur le nom pour +1 an
-            trailing: SizedBox(
-              width: 150,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-          
-                  IconButton(
-                  icon: const Icon(Icons.notifications),
-                  onPressed: () => scheduleNotification(entry.key, entry.value),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.delete, color: Colors.red),
-                  onPressed: () => deleteEntretien(entry.key),
-                ),
-                ],
+      body:
+          _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : ListView(
+                children:
+                    entretiens.entries.map((entry) {
+                      return ListTile(
+                        title: Text(entry.key),
+                        subtitle: Text(
+                          '${entry.value.day}/${entry.value.month}/${entry.value.year}',
+                        ),
+                        leading: const Icon(Icons.event),
+                        onTap: () => updateEntretienDate(entry.key),
+                        trailing: SizedBox(
+                          width: 150,
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.end,
+                            children: [
+                              IconButton(
+                                icon: Icon(
+                                  Icons.notifications,
+                                  color:
+                                      _activeReminderIds.contains(
+                                            _reminderService.notificationsId(
+                                              entry.key,
+                                            ),
+                                          )
+                                          ? Colors.red
+                                          : null,
+                                ),
+                                tooltip:
+                                    _activeReminderIds.contains(
+                                          _reminderService.notificationsId(
+                                            entry.key,
+                                          ),
+                                        )
+                                        ? "Désactiver le rappel"
+                                        : "Activer le rappel",
+                                onPressed:
+                                    () => toggleNotification(
+                                      entry.key,
+                                      entry.value,
+                                    ),
+                              ),
+                              IconButton(
+                                icon: const Icon(
+                                  Icons.delete,
+                                  color: Colors.red,
+                                ),
+                                onPressed: () => deleteEntretien(entry.key),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }).toList(),
               ),
-            ),
-          );
-        }).toList(),
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: addEntretien,
-        tooltip: "Ajouter un entretien",
-        child: const Icon(Icons.add),
-      ),
+      floatingActionButton:
+          _isLoading
+              ? null
+              : FloatingActionButton(
+                onPressed: addEntretien,
+                tooltip: "Ajouter un entretien",
+                child: const Icon(Icons.add),
+              ),
     );
   }
 }

@@ -1,10 +1,9 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:remindme/reminder_service.dart';
 import 'package:remindme/views/homepage.dart';
-
-final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
-    FlutterLocalNotificationsPlugin();
 
 void main() async {
   debugPaintLayerBordersEnabled = true; // Désactiver le débogage visuel
@@ -13,10 +12,15 @@ void main() async {
   // Configuration des paramètres de notification
   const AndroidInitializationSettings initializationSettingsAndroid =
       AndroidInitializationSettings('@mipmap/ic_launcher');
+  const DarwinInitializationSettings initializationSettingsDarwin =
+      DarwinInitializationSettings();
   const InitializationSettings initializationSettings = InitializationSettings(
     android: initializationSettingsAndroid,
+    iOS: initializationSettingsDarwin,
   );
-  await flutterLocalNotificationsPlugin.initialize(initializationSettings);
+  if (!kIsWeb) {
+    await flutterLocalNotificationsPlugin.initialize(initializationSettings);
+  }
 
   runApp(const MyApp());
 }
