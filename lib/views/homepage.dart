@@ -94,7 +94,7 @@ class _HomePageState extends State<HomePage> {
                   final pickedDate = await showDatePicker(
                     context: dialogContext,
                     initialDate: DateTime.now(),
-                    firstDate: DateTime.now(),
+                    firstDate: DateTime(2000),
                     lastDate: DateTime(2030),
                   );
                   if (pickedDate != null) {
