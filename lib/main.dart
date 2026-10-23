@@ -6,7 +6,7 @@ import 'package:remindme/reminder_service.dart';
 import 'package:remindme/views/homepage.dart';
 
 void main() async {
-  debugPaintLayerBordersEnabled = true; // Désactiver le débogage visuel
+  debugPaintLayerBordersEnabled = false; // Désactiver le débogage visuel
   WidgetsFlutterBinding.ensureInitialized();
 
   // Configuration des paramètres de notification
@@ -32,6 +32,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'RemindMe',
+      debugShowCheckedModeBanner: false,
       theme: ThemeData(primarySwatch: Colors.blue),
       home: const HomePage(title: 'RemindMe'),
     );
