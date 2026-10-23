@@ -11,6 +11,11 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
+  static const _pageBackground = Color(0xFFF4F7FB);
+  static const _primaryColor = Color(0xFF3157D5);
+  static const _textColor = Color(0xFF17233C);
+  static const _mutedColor = Color(0xFF73809A);
+
   late final ReminderService _reminderService;
   bool _isLoading = true;
   Set<int> _activeReminderIds = {};
@@ -344,64 +349,158 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
+    final entries = entretiens.entries.toList();
+
     return Scaffold(
-      appBar: AppBar(title: Text(widget.title)),
+      backgroundColor: _pageBackground,
+      appBar: AppBar(
+        title: Text(
+          widget.title,
+          style: const TextStyle(
+            color: _textColor,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        backgroundColor: _pageBackground,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+      ),
       body:
           _isLoading
               ? const Center(child: CircularProgressIndicator())
-              : ListView(
-                children:
-                    entretiens.entries.map((entry) {
-                      return ListTile(
-                        title: Text(entry.key),
-                        subtitle: Text(
-                          '${entry.value.day}/${entry.value.month}/${entry.value.year}',
-                        ),
-                        leading: const Icon(Icons.event),
-                        onTap: () => updateEntretienDate(entry.key),
-                        trailing: SizedBox(
-                          width: 150,
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.end,
-                            children: [
-                              IconButton(
-                                icon: Icon(
-                                  Icons.notifications,
-                                  color:
-                                      _activeReminderIds.contains(
-                                            _reminderService.notificationsId(
-                                              entry.key,
-                                            ),
-                                          )
-                                          ? Colors.red
-                                          : null,
-                                ),
-                                tooltip:
-                                    _activeReminderIds.contains(
-                                          _reminderService.notificationsId(
-                                            entry.key,
-                                          ),
-                                        )
-                                        ? "Désactiver le rappel"
-                                        : "Activer le rappel",
-                                onPressed:
-                                    () => toggleNotification(
-                                      entry.key,
-                                      entry.value,
-                                    ),
+              : ListView.builder(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 100),
+                itemCount: entries.isEmpty ? 3 : entries.length + 2,
+                itemBuilder: (context, index) {
+                  if (index == 0) {
+                    return _buildWelcomeCard(entries.length);
+                  }
+                  if (index == 1) {
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 28, bottom: 14),
+                      child: Row(
+                        children: [
+                          const Text(
+                            "Mes entretiens",
+                            style: TextStyle(
+                              color: _textColor,
+                              fontSize: 20,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: _primaryColor.withValues(alpha: 0.1),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(
+                              '${entries.length}',
+                              style: const TextStyle(
+                                color: _primaryColor,
+                                fontWeight: FontWeight.w700,
                               ),
-                              IconButton(
-                                icon: const Icon(
-                                  Icons.delete,
-                                  color: Colors.red,
-                                ),
-                                onPressed: () => deleteEntretien(entry.key),
-                              ),
-                            ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+
+                  if (entries.isEmpty) {
+                    return _buildEmptyState();
+                  }
+
+                  final entry = entries[index - 2];
+                  final notificationId = _reminderService.notificationsId(
+                    entry.key,
+                  );
+                  final isReminderActive = _activeReminderIds.contains(
+                    notificationId,
+                  );
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Card(
+                      margin: EdgeInsets.zero,
+                      color: Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(18),
+                        side: const BorderSide(color: Color(0xFFE8EDF5)),
+                      ),
+                      child: ListTile(
+                        contentPadding: const EdgeInsets.fromLTRB(14, 8, 8, 8),
+                        leading: Container(
+                          width: 46,
+                          height: 46,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFEAF0FF),
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                          child: const Icon(
+                            Icons.event_outlined,
+                            color: _primaryColor,
                           ),
                         ),
-                      );
-                    }).toList(),
+                        title: Text(
+                          entry.key,
+                          style: const TextStyle(
+                            color: _textColor,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        subtitle: Padding(
+                          padding: const EdgeInsets.only(top: 5),
+                          child: Text(
+                            '${entry.value.day}/${entry.value.month}/${entry.value.year}',
+                            style: const TextStyle(
+                              color: _mutedColor,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                        onTap: () => updateEntretienDate(entry.key),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              tooltip:
+                                  isReminderActive
+                                      ? "Désactiver le rappel"
+                                      : "Activer le rappel",
+                              onPressed:
+                                  () => toggleNotification(
+                                    entry.key,
+                                    entry.value,
+                                  ),
+                              icon: Icon(
+                                isReminderActive
+                                    ? Icons.notifications_active_outlined
+                                    : Icons.notifications_none_outlined,
+                                color:
+                                    isReminderActive
+                                        ? _primaryColor
+                                        : _mutedColor,
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: "Supprimer",
+                              onPressed: () => deleteEntretien(entry.key),
+                              icon: const Icon(
+                                Icons.delete_outline,
+                                color: Color(0xFF9AA5B8),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                },
               ),
       floatingActionButton:
           _isLoading
@@ -409,8 +508,120 @@ class _HomePageState extends State<HomePage> {
               : FloatingActionButton(
                 onPressed: addEntretien,
                 tooltip: "Ajouter un entretien",
+                backgroundColor: _primaryColor,
+                foregroundColor: Colors.white,
                 child: const Icon(Icons.add),
               ),
+    );
+  }
+
+  Widget _buildWelcomeCard(int reminderCount) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        gradient: const LinearGradient(
+          colors: [Color(0xFF3157D5), Color(0xFF5578E8)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: _primaryColor.withValues(alpha: 0.18),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  "Gardez l’esprit tranquille",
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  reminderCount == 0
+                      ? "Ajoutez un entretien pour commencer."
+                      : "$reminderCount entretien${reminderCount > 1 ? 's' : ''} enregistré${reminderCount > 1 ? 's' : ''}.",
+                  style: const TextStyle(
+                    color: Color(0xFFE3E9FF),
+                    fontSize: 14,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Container(
+            width: 54,
+            height: 54,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.16),
+              borderRadius: BorderRadius.circular(18),
+            ),
+            child: const Icon(
+              Icons.notifications_active_outlined,
+              color: Colors.white,
+              size: 28,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFE8EDF5)),
+      ),
+      child: Column(
+        children: [
+          Container(
+            width: 64,
+            height: 64,
+            decoration: BoxDecoration(
+              color: const Color(0xFFEAF0FF),
+              borderRadius: BorderRadius.circular(22),
+            ),
+            child: const Icon(
+              Icons.event_note_outlined,
+              color: _primaryColor,
+              size: 30,
+            ),
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            "Aucun entretien pour le moment",
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: _textColor,
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            "Appuyez sur + pour ajouter votre premier rappel.",
+            textAlign: TextAlign.center,
+            style: TextStyle(color: _mutedColor, height: 1.4),
+          ),
+        ],
+      ),
     );
   }
 }
